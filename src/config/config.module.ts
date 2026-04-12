@@ -5,6 +5,7 @@ import {
   DBConfig,
   EmailConfig,
   JwtConfig,
+  GroqConfig,
 } from './registered-configs';
 import { getEnvFilePaths } from './config.utils';
 
@@ -13,7 +14,7 @@ import { getEnvFilePaths } from './config.utils';
   imports: [
     NestConfigModule.forRoot({
       isGlobal: true,
-      load: [AppConfig, DBConfig, JwtConfig, EmailConfig],
+      load: [AppConfig, DBConfig, JwtConfig, EmailConfig, GroqConfig],
       envFilePath: getEnvFilePaths(),
     }),
   ],

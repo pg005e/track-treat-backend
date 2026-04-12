@@ -1,7 +1,12 @@
 import { join, resolve } from 'node:path';
 import { ClassConstructor, plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
-import { AppConfig, DBConfig, EmailConfig } from './registered-configs';
+import {
+  AppConfig,
+  DBConfig,
+  EmailConfig,
+  GroqConfig,
+} from './registered-configs';
 
 export const APP_ROOT = resolve(__dirname, '../..');
 export function getEnvFilePaths(): string[] {
@@ -12,6 +17,7 @@ export enum ConfigKey {
   App = 'app',
   Db = 'db',
   Email = 'email',
+  Groq = 'groq',
 }
 
 type PrefixedDotKeys<T, P extends string> = {
@@ -23,7 +29,8 @@ export type EnvironmentVariables = PrefixedDotKeys<
   ConfigKey.App
 > &
   PrefixedDotKeys<ReturnType<typeof DBConfig>, ConfigKey.Db> &
-  PrefixedDotKeys<ReturnType<typeof EmailConfig>, ConfigKey.Email>;
+  PrefixedDotKeys<ReturnType<typeof EmailConfig>, ConfigKey.Email> &
+  PrefixedDotKeys<ReturnType<typeof GroqConfig>, ConfigKey.Groq>;
 
 export function validateConfig<T extends object>(
   cls: ClassConstructor<T>,

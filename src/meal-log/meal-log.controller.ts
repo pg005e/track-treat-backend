@@ -12,12 +12,20 @@ import {
 import { JwtAuthGuard } from 'src/auth/guards';
 import { CurrentUser } from 'src/auth/decorators';
 import { MealLogService } from './meal-log.service';
-import { CreateMealLogDto, QueryMealLogDto } from './dto';
+import { CreateMealLogDto, QueryMealLogDto, ParseTextDto } from './dto';
 
 @Controller('meal-logs')
 @UseGuards(JwtAuthGuard)
 export class MealLogController {
   constructor(private readonly mealLogService: MealLogService) {}
+
+  @Post('parse-text')
+  parseText(
+    @CurrentUser('id') userId: number,
+    @Body() dto: ParseTextDto,
+  ) {
+    return this.mealLogService.parseText(userId, dto);
+  }
 
   @Post()
   create(

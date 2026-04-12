@@ -22,7 +22,6 @@ export class TrackingController {
     @CurrentUser('id') userId: number,
     @Query('startDate') startDate?: string,
   ) {
-    // Default to Monday of current week
     const now = new Date();
     const dayOfWeek = now.getDay();
     const monday = new Date(now);
@@ -33,5 +32,21 @@ export class TrackingController {
       userId,
       startDate || defaultStart,
     );
+  }
+
+  @Get('adherence')
+  getAdherence(
+    @CurrentUser('id') userId: number,
+    @Query('date') date: string,
+  ) {
+    return this.trackingService.getAdherence(userId, date);
+  }
+
+  @Get('feedback')
+  getWeeklyFeedback(
+    @CurrentUser('id') userId: number,
+    @Query('startDate') startDate?: string,
+  ) {
+    return this.trackingService.getWeeklyFeedback(userId, startDate);
   }
 }

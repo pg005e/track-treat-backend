@@ -9,6 +9,8 @@ import { FoodModule } from './food/food.module';
 import { MealLogModule } from './meal-log/meal-log.module';
 import { TrackingModule } from './tracking/tracking.module';
 import { EmailModule } from './email/email.module';
+import { LlmModule } from './llm/llm.module';
+import { MealPlanModule } from './meal-plan/meal-plan.module';
 import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 
@@ -17,10 +19,12 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
     ConfigModule,
     DatabaseModule,
     EmailModule,
+    LlmModule,
     AuthModule,
     UserModule,
     FoodModule,
     MealLogModule,
+    MealPlanModule,
     TrackingModule,
   ],
   controllers: [AppController],

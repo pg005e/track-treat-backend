@@ -8,6 +8,13 @@ async function bootstrap() {
     logger: ['log', 'error', 'warn', 'debug', 'verbose'],
   });
 
+  const config = app.get(ConfigService);
+
+  app.enableCors({
+    origin: config.get<string>('app.url', 'http://localhost:3001'),
+    credentials: true,
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -15,8 +22,6 @@ async function bootstrap() {
       transform: true,
     }),
   );
-
-  const config = app.get(ConfigService);
   const port = config.get<number>('app.port', 3000);
   await app.listen(port);
 

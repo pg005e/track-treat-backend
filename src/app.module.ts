@@ -11,6 +11,8 @@ import { TrackingModule } from './tracking/tracking.module';
 import { EmailModule } from './email/email.module';
 import { LlmModule } from './llm/llm.module';
 import { MealPlanModule } from './meal-plan/meal-plan.module';
+import { WaterLogModule } from './water-log/water-log.module';
+import { WeightLogModule } from './weight-log/weight-log.module';
 import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 
@@ -25,6 +27,8 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
     FoodModule,
     MealLogModule,
     MealPlanModule,
+    WaterLogModule,
+    WeightLogModule,
     TrackingModule,
   ],
   controllers: [AppController],

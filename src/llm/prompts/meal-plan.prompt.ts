@@ -2,6 +2,7 @@ export interface MealPlanContext {
   targetCalories: number;
   mealsPerDay: number;
   dietaryLifestyle: string;
+  region: string | null;
   allergies: string[];
   restrictions: string[];
   dislikes: string[];
@@ -38,9 +39,15 @@ export function buildMealPlanPrompt(ctx: MealPlanContext) {
   }
 
   return {
-    system: `Generate a 7-day meal plan. ${ctx.targetCalories} cal/day (±10%). ${ctx.mealsPerDay} meals/day: ${getMealTypeDistribution(ctx.mealsPerDay)}.
+    system: `Generate a 7-day meal plan. ${ctx.targetCalories} cal/day (±10%). ${ctx.mealsPerDay} meals/day: ${getMealTypeDistribution(ctx.mealsPerDay)}.${ctx.region ? ` User is from ${ctx.region} — use locally available, culturally appropriate foods from this region.` : ''}
 
-Rules: NEVER include allergens. No consecutive-day repeats. Use foods from the list by exact ID when possible; set foodItemId=null for new foods with full macro estimates. Practical meals only.
+Rules:
+- ONLY whole, unprocessed, healthy foods. NO junk food, fast food, chips, soda, candy, packaged snacks, or deep-fried items.
+- Prioritize fresh vegetables, fruits, whole grains, legumes, lean proteins, nuts, seeds, and healthy fats.
+- servingSize MUST be a concrete weight/volume (e.g. "150" not "1"), servingUnit MUST be "g" or "ml". No vague units like "serving", "piece", "bowl".
+- quantity is the number of servings (e.g. 1, 1.5, 2).
+- NEVER include allergens. No consecutive-day repeats.
+- Use foods from the list by exact ID when possible; set foodItemId=null for new foods with full macro estimates.
 ${constraints.length > 0 ? '\nConstraints: ' + constraints.join('. ') + '.' : ''}`,
 
     user: `Foods (id:name:cal): ${foodList || 'none — suggest common foods with estimates'}`,

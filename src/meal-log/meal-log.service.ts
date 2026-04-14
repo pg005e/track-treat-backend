@@ -1,21 +1,33 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
 import { MealLog, LogSource } from './entities/meal-log.entity';
 import { FoodService } from 'src/food/food.service';
+import { LlmService } from 'src/llm/llm.service';
 import { CreateMealLogDto, QueryMealLogDto, ParseTextDto } from './dto';
 import { parseFoodText } from 'src/food/food-text-parser';
+import {
+  buildFoodParsingPrompt,
+  foodParsingToolName,
+  foodParsingToolDescription,
+  foodParsingSchema,
+  FoodParsingResult,
+} from 'src/llm/prompts/food-parsing.prompt';
 
 @Injectable()
 export class MealLogService {
+  private readonly logger = new Logger(MealLogService.name);
+
   constructor(
     @InjectRepository(MealLog)
     private readonly mealLogRepo: Repository<MealLog>,
     private readonly foodService: FoodService,
+    private readonly llmService: LlmService,
   ) {}
 
   async create(
@@ -43,20 +55,101 @@ export class MealLogService {
   }
 
   async parseText(userId: number, dto: ParseTextDto) {
-    const parsed = parseFoodText(dto.text);
+    const loggedAt = dto.loggedAt || new Date().toISOString().split('T')[0];
+
+    // Try LLM-based parsing first (decomposes composite dishes into ingredients)
+    if (this.llmService.isAvailable) {
+      return this.parseTextWithLlm(userId, dto.text, dto.mealType, loggedAt);
+    }
+
+    // Fallback: local regex parser + DB lookup
+    return this.parseTextWithRegex(userId, dto.text, dto.mealType, loggedAt);
+  }
+
+  private async parseTextWithLlm(
+    userId: number,
+    text: string,
+    mealType: string,
+    loggedAt: string,
+  ) {
+    const prompt = buildFoodParsingPrompt(text);
+    let result: FoodParsingResult;
+
+    try {
+      result = await this.llmService.chatJson<FoodParsingResult>({
+        systemPrompt: prompt.system,
+        userPrompt: prompt.user,
+        toolName: foodParsingToolName,
+        toolDescription: foodParsingToolDescription,
+        inputSchema: foodParsingSchema,
+        temperature: 0.2,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `LLM food parsing failed, falling back to regex: ${error instanceof Error ? error.message : error}`,
+      );
+      return this.parseTextWithRegex(userId, text, mealType, loggedAt);
+    }
+
+    if (!result.items || result.items.length === 0) {
+      throw new BadRequestException(
+        'Could not extract any food items. Try something like "2 eggs and a bowl of rice".',
+      );
+    }
+
+    const logs: MealLog[] = [];
+
+    for (const item of result.items) {
+      // Find or create FoodItem for each ingredient
+      let foodItem = await this.foodService.findByName(item.name);
+
+      if (!foodItem) {
+        // Create from LLM-estimated nutrition
+        foodItem = await this.foodService.createUserFood(userId, {
+          name: item.name,
+          servingSize: item.servingSize,
+          servingUnit: item.servingUnit,
+          calories: item.estimatedCalories,
+          protein: item.estimatedProtein,
+          carbs: item.estimatedCarbs,
+          fat: item.estimatedFat,
+        });
+      }
+
+      const log = await this.create(
+        userId,
+        {
+          foodItemId: foodItem.id,
+          quantity: Math.round(item.quantity * 100) / 100,
+          mealType: mealType as any,
+          loggedAt,
+        },
+        LogSource.AiParsed,
+      );
+      logs.push(log);
+    }
+
+    return { logged: logs, unresolved: null };
+  }
+
+  private async parseTextWithRegex(
+    userId: number,
+    text: string,
+    mealType: string,
+    loggedAt: string,
+  ) {
+    const parsed = parseFoodText(text);
 
     if (parsed.length === 0) {
       throw new BadRequestException(
-        'Could not extract any food items from the text. Try something like "2 eggs and a bowl of rice".',
+        'Could not extract any food items. Try something like "2 eggs and a bowl of rice".',
       );
     }
 
     const logs: MealLog[] = [];
     const unresolved: string[] = [];
-    const loggedAt = dto.loggedAt || new Date().toISOString().split('T')[0];
 
     for (const item of parsed) {
-      // Search local DB + USDA fallback
       const foodItem = await this.foodService.findByName(item.name);
 
       if (!foodItem) {
@@ -64,29 +157,21 @@ export class MealLogService {
         continue;
       }
 
-      // Determine quantity multiplier
-      // If user specified a weight unit (e.g. "300g") and food serving is in "g",
-      // calculate the multiplier
       let quantity = item.quantity;
       if (item.unit === 'g' && foodItem.servingUnit === 'g') {
-        const servingGrams = parseFloat(foodItem.servingSize) || 100;
-        quantity = item.quantity / servingGrams;
+        quantity = item.quantity / (parseFloat(foodItem.servingSize) || 100);
       } else if (item.unit === 'kg') {
-        const servingGrams = parseFloat(foodItem.servingSize) || 100;
-        quantity = (item.quantity * 1000) / servingGrams;
+        quantity = (item.quantity * 1000) / (parseFloat(foodItem.servingSize) || 100);
       } else if (item.unit === 'ml' && foodItem.servingUnit === 'ml') {
-        const servingMl = parseFloat(foodItem.servingSize) || 100;
-        quantity = item.quantity / servingMl;
+        quantity = item.quantity / (parseFloat(foodItem.servingSize) || 100);
       }
-      // For non-weight units (bowl, plate, piece, cup) or no unit,
-      // use quantity as-is (it's a serving multiplier)
 
       const log = await this.create(
         userId,
         {
           foodItemId: foodItem.id,
           quantity: Math.round(quantity * 100) / 100,
-          mealType: dto.mealType,
+          mealType: mealType as any,
           loggedAt,
         },
         LogSource.AiParsed,

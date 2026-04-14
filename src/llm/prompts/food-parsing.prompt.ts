@@ -1,8 +1,11 @@
 export function buildFoodParsingPrompt(text: string) {
   return {
-    system: `Extract food items from meal descriptions. For each item return: standardized name, quantity (serving count), servingSize, servingUnit (g/ml/piece/cup/bowl), and per-serving macros (calories, protein, carbs, fat).
+    system: `Extract individual base ingredients from meal descriptions. ALWAYS decompose composite dishes into their constituent ingredients. For example:
+- "chicken biryani" → rice, chicken, cooking oil, onion, spices
+- "dal bhat" → lentils, rice, ghee
+- "caesar salad" → romaine lettuce, chicken breast, parmesan, croutons, olive oil
 
-Convert user quantities to servings (e.g. "400g" with 100g serving = quantity 4). Always extract at least one item. Use reasonable defaults for ambiguous input.`,
+For each ingredient return: standardized name, quantity (serving count), servingSize, servingUnit (g/ml/piece/cup/bowl), and per-serving macros (calories, protein, carbs, fat). Use USDA/IFCT values. Never return a composite dish as a single item.`,
 
     user: text,
   };

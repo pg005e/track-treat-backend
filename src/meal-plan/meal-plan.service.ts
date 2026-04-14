@@ -59,6 +59,7 @@ export class MealPlanService {
       targetCalories: Number(profile.targetCalories),
       mealsPerDay: profile.mealsPerDay,
       dietaryLifestyle: profile.dietaryLifestyle,
+      region: profile.region,
       allergies: profile.allergies,
       restrictions: profile.restrictions,
       dislikes: profile.dislikes,
@@ -214,5 +215,83 @@ export class MealPlanService {
 
     plan.status = MealPlanStatus.Cancelled;
     await this.planRepo.save(plan);
+  }
+
+  async updateItem(
+    userId: number,
+    planId: number,
+    itemId: number,
+    dto: { foodItemId?: number; quantity?: number; notes?: string | null },
+  ) {
+    const item = await this.getOwnedItem(userId, planId, itemId);
+
+    if (dto.foodItemId !== undefined) {
+      const food = await this.foodService.findById(dto.foodItemId);
+      item.foodItemId = food.id;
+      const qty = dto.quantity ?? Number(item.quantity);
+      item.calories = Number(food.calories) * qty;
+      item.protein = Number(food.protein) * qty;
+      item.carbs = Number(food.carbs) * qty;
+      item.fat = Number(food.fat) * qty;
+      if (dto.quantity !== undefined) item.quantity = dto.quantity;
+    } else if (dto.quantity !== undefined) {
+      const food = await this.foodService.findById(item.foodItemId);
+      item.quantity = dto.quantity;
+      item.calories = Number(food.calories) * dto.quantity;
+      item.protein = Number(food.protein) * dto.quantity;
+      item.carbs = Number(food.carbs) * dto.quantity;
+      item.fat = Number(food.fat) * dto.quantity;
+    }
+
+    if (dto.notes !== undefined) item.notes = dto.notes;
+
+    return this.itemRepo.save(item);
+  }
+
+  async deleteItem(userId: number, planId: number, itemId: number) {
+    const item = await this.getOwnedItem(userId, planId, itemId);
+    await this.itemRepo.remove(item);
+  }
+
+  async addItem(
+    userId: number,
+    planId: number,
+    dto: { day: number; mealType: string; foodItemId: number; quantity: number; notes?: string | null },
+  ) {
+    // Verify plan ownership
+    const plan = await this.planRepo.findOne({
+      where: { id: planId, userId, status: MealPlanStatus.Active },
+    });
+    if (!plan) throw new NotFoundException('Active meal plan not found');
+
+    const food = await this.foodService.findById(dto.foodItemId);
+
+    const item = this.itemRepo.create({
+      mealPlanId: planId,
+      day: dto.day,
+      mealType: dto.mealType,
+      foodItemId: food.id,
+      quantity: dto.quantity,
+      notes: dto.notes || null,
+      calories: Number(food.calories) * dto.quantity,
+      protein: Number(food.protein) * dto.quantity,
+      carbs: Number(food.carbs) * dto.quantity,
+      fat: Number(food.fat) * dto.quantity,
+    });
+
+    return this.itemRepo.save(item);
+  }
+
+  private async getOwnedItem(userId: number, planId: number, itemId: number) {
+    const item = await this.itemRepo.findOne({
+      where: { id: itemId, mealPlanId: planId },
+      relations: ['mealPlan'],
+    });
+
+    if (!item || item.mealPlan.userId !== userId) {
+      throw new NotFoundException('Plan item not found');
+    }
+
+    return item;
   }
 }

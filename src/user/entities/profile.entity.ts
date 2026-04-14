@@ -53,6 +53,9 @@ export class Profile {
   @Column({ type: 'varchar', name: 'avatar_url', nullable: true })
   avatarUrl: string | null;
 
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  region: string | null;
+
   @Column({ type: 'date', name: 'birth_date', nullable: true })
   birthDate: Date | null;
 
@@ -148,6 +151,15 @@ export class Profile {
     nullable: true,
   })
   targetCalories: number | null;
+
+  @Column({
+    type: 'numeric',
+    name: 'daily_water_target',
+    precision: 7,
+    scale: 2,
+    default: 2500,
+  })
+  dailyWaterTarget: number;
 
   @Column({ name: 'onboarding_completed', default: false })
   onboardingCompleted: boolean;

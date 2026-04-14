@@ -17,6 +17,10 @@ import {
 
 export class UpdateProfileDto {
   @IsOptional()
+  @IsString()
+  region?: string;
+
+  @IsOptional()
   @IsDateString()
   birthDate?: string;
 
@@ -73,4 +77,10 @@ export class UpdateProfileDto {
   @IsNumber()
   @Min(0)
   budgetPerDay?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(500)
+  @Max(10000)
+  dailyWaterTarget?: number;
 }

@@ -1,19 +1,21 @@
 export function buildFoodParsingPrompt(text: string) {
   return {
-    system: `Extract individual base ingredients from meal descriptions. ALWAYS decompose composite dishes into their constituent ingredients. For example:
-- "chicken biryani" → rice, chicken, cooking oil, onion, spices
-- "dal bhat" → lentils, rice, ghee
-- "caesar salad" → romaine lettuce, chicken breast, parmesan, croutons, olive oil
+    system: `Decompose meal descriptions into individual base ingredients.
+Never return a composite dish as one item. Always break it down.
 
-For each ingredient return: standardized name, quantity (serving count), servingSize, servingUnit (g/ml/piece/cup/bowl), and per-serving macros (calories, protein, carbs, fat). Use USDA/IFCT values. Never return a composite dish as a single item.`,
+Examples:
+  "dal bhat"       → lentils 180g, rice 150g, ghee 5g
+  "chicken biryani"→ basmati rice 150g, chicken 120g, onion 50g, oil 10g, spices 5g
+  "caesar salad"   → romaine 80g, chicken breast 100g, parmesan 20g, olive oil 10g
+
+For each ingredient: standardized name, quantity (number of servings), servingSize (numeric string), servingUnit (g or ml only), and macros per serving (calories, protein, carbs, fat) using USDA/IFCT values.`,
 
     user: text,
   };
 }
 
 export const foodParsingToolName = 'extract_food_items';
-
-export const foodParsingToolDescription = 'Extract food items from text';
+export const foodParsingToolDescription = 'Extract and decompose food items from a meal description';
 
 export const foodParsingSchema = {
   type: 'object' as const,
@@ -23,16 +25,19 @@ export const foodParsingSchema = {
       items: {
         type: 'object',
         properties: {
-          name: { type: 'string' },
-          quantity: { type: 'number' },
-          servingSize: { type: 'string' },
-          servingUnit: { type: 'string' },
-          estimatedCalories: { type: 'number' },
-          estimatedProtein: { type: 'number' },
-          estimatedCarbs: { type: 'number' },
-          estimatedFat: { type: 'number' },
+          name:               { type: 'string' },
+          quantity:           { type: 'number' },
+          servingSize:        { type: 'string' },
+          servingUnit:        { type: 'string', enum: ['g', 'ml'] },
+          estimatedCalories:  { type: 'number' },
+          estimatedProtein:   { type: 'number' },
+          estimatedCarbs:     { type: 'number' },
+          estimatedFat:       { type: 'number' },
         },
-        required: ['name', 'quantity', 'servingSize', 'servingUnit', 'estimatedCalories', 'estimatedProtein', 'estimatedCarbs', 'estimatedFat'],
+        required: [
+          'name', 'quantity', 'servingSize', 'servingUnit',
+          'estimatedCalories', 'estimatedProtein', 'estimatedCarbs', 'estimatedFat',
+        ],
       },
     },
   },
@@ -41,13 +46,13 @@ export const foodParsingSchema = {
 
 export interface FoodParsingResult {
   items: Array<{
-    name: string;
-    quantity: number;
-    servingSize: string;
-    servingUnit: string;
-    estimatedCalories: number;
-    estimatedProtein: number;
-    estimatedCarbs: number;
-    estimatedFat: number;
+    name:               string;
+    quantity:           number;
+    servingSize:        string;
+    servingUnit:        'g' | 'ml';
+    estimatedCalories:  number;
+    estimatedProtein:   number;
+    estimatedCarbs:     number;
+    estimatedFat:       number;
   }>;
 }

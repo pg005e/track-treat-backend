@@ -134,6 +134,9 @@ export class Profile {
   })
   mealsPerDay: number;
 
+  @Column({ name: 'meals_per_day_auto', default: false })
+  mealsPerDayAuto: boolean;
+
   @Column({
     type: 'numeric',
     name: 'budget_per_day',

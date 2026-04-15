@@ -38,6 +38,14 @@ export class UserService {
     if (this.hasEnoughDataForTdee(profile)) {
       profile.targetCalories = this.calculateTargetCalories(profile);
       profile.onboardingCompleted = true;
+
+      // Compute/validate meals per day
+      const mealResult = this.computeOptimalMeals(
+        Number(profile.targetCalories),
+        dto.mealsPerDay, // user-provided value (or undefined)
+      );
+      profile.mealsPerDay = mealResult.mealsPerDay;
+      profile.mealsPerDayAuto = mealResult.wasAdjusted;
     }
 
     return this.profileRepo.save(profile);
@@ -79,17 +87,65 @@ export class UserService {
     return Math.round(bmr * multipliers[profile.activityLevel]);
   }
 
+  /**
+   * Compute or validate meals per day based on calorie target.
+   *
+   * Per-meal calorie range: 250–800 kcal.
+   * If no value provided → auto-compute from target calories.
+   * If value provided → validate against reasonable per-meal range and correct if needed.
+   *
+   * Returns { mealsPerDay, wasAdjusted: true if system changed the value }.
+   */
+  computeOptimalMeals(
+    targetCalories: number,
+    userValue?: number,
+  ): { mealsPerDay: number; wasAdjusted: boolean } {
+    const MIN_PER_MEAL = 250;
+    const MAX_PER_MEAL = 800;
+    const IDEAL_PER_MEAL = 500;
+    const MIN_MEALS = 2;
+    const MAX_MEALS = 8;
+
+    const clamp = (v: number) => Math.max(MIN_MEALS, Math.min(MAX_MEALS, v));
+
+    // No user value → auto-suggest
+    if (userValue === undefined || userValue === null) {
+      const suggested = clamp(Math.round(targetCalories / IDEAL_PER_MEAL));
+      return { mealsPerDay: suggested, wasAdjusted: true };
+    }
+
+    const perMeal = targetCalories / userValue;
+
+    // User value produces reasonable per-meal calories → accept
+    if (perMeal >= MIN_PER_MEAL && perMeal <= MAX_PER_MEAL) {
+      return { mealsPerDay: clamp(userValue), wasAdjusted: false };
+    }
+
+    // Per-meal too low (too many meals for the calories) → reduce meals
+    if (perMeal < MIN_PER_MEAL) {
+      const corrected = clamp(Math.floor(targetCalories / MIN_PER_MEAL));
+      return { mealsPerDay: corrected, wasAdjusted: true };
+    }
+
+    // Per-meal too high (too few meals for the calories) → increase meals
+    const corrected = clamp(Math.ceil(targetCalories / MAX_PER_MEAL));
+    return { mealsPerDay: corrected, wasAdjusted: true };
+  }
+
+  calculateTargetFromTdee(tdee: number, goal: string | null): number {
+    switch (goal) {
+      case 'lose':
+        return Math.round(tdee * 0.8);
+      case 'gain':
+        return Math.round(tdee * 1.15);
+      default:
+        return Math.round(tdee);
+    }
+  }
+
   private calculateTargetCalories(profile: Profile): number {
     const tdee = this.calculateTdee(profile)!;
-
-    switch (profile.dietaryGoal) {
-      case 'lose':
-        return Math.round(tdee * 0.8); // 20% deficit
-      case 'gain':
-        return Math.round(tdee * 1.15); // 15% surplus
-      default:
-        return tdee;
-    }
+    return this.calculateTargetFromTdee(tdee, profile.dietaryGoal);
   }
 
   private hasEnoughDataForTdee(profile: Profile): boolean {

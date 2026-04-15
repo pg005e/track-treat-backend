@@ -7,9 +7,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MealPlan, MealPlanStatus } from './entities/meal-plan.entity';
 import { MealPlanItem } from './entities/meal-plan-item.entity';
+import { AdaptiveProfileEntity } from 'src/adaptive/entities';
 import { UserService } from 'src/user/user.service';
 import { FoodService } from 'src/food/food.service';
-import { LlmService } from 'src/llm/llm.service';
+import { LlmService, LlmModel } from 'src/llm/llm.service';
 import { GeneratePlanDto } from './dto';
 import {
   buildMealPlanPrompt,
@@ -26,6 +27,8 @@ export class MealPlanService {
     private readonly planRepo: Repository<MealPlan>,
     @InjectRepository(MealPlanItem)
     private readonly itemRepo: Repository<MealPlanItem>,
+    @InjectRepository(AdaptiveProfileEntity)
+    private readonly adaptiveRepo: Repository<AdaptiveProfileEntity>,
     private readonly userService: UserService,
     private readonly foodService: FoodService,
     private readonly llmService: LlmService,
@@ -46,14 +49,56 @@ export class MealPlanService {
       { status: MealPlanStatus.Cancelled },
     );
 
-    // Fetch a compact set of foods for LLM context (limit to avoid token overflow)
+    // Fetch latest adaptive profile (if exists)
+    const adaptiveEntity = await this.adaptiveRepo.findOne({
+      where: { userId },
+      order: { weekStartDate: 'DESC' },
+    });
+
+    // Handle recalibration: recompute TDEE before generating
+    if (adaptiveEntity?.recalibrateFlag) {
+      const tdee = this.userService.calculateTdee(profile);
+      if (tdee) {
+        const recalibrated = this.userService.calculateTargetFromTdee(tdee, profile.dietaryGoal);
+        profile.targetCalories = recalibrated;
+      }
+    }
+
+    // Fetch foods, filtering out skipped foods from adaptive profile
+    const skippedIds = new Set(adaptiveEntity?.skippedFoods || []);
     const foods = await this.foodService.search({ query: '', limit: 30 });
-    const availableFoods = foods.map((f) => ({
-      id: f.id,
-      name: f.name,
-      calories: Number(f.calories),
-      category: f.category,
-    }));
+    const availableFoods = foods
+      .filter((f) => !skippedIds.has(f.id))
+      .map((f) => ({
+        id: f.id,
+        name: f.name,
+        calories: Number(f.calories),
+        protein: Number(f.protein),
+        carbs: Number(f.carbs),
+        fat: Number(f.fat),
+        category: f.category,
+      }));
+
+    // Convert entity to AdaptiveProfile interface for the prompt
+    const adaptiveProfile = adaptiveEntity ? {
+      quadrant: adaptiveEntity.quadrant as any,
+      strictnessLevel: adaptiveEntity.strictnessLevel as any,
+      planMode: adaptiveEntity.planMode as any,
+      pressureScore: Number(adaptiveEntity.pressureScore),
+      complexityTarget: adaptiveEntity.complexityTarget,
+      simplifyFlag: adaptiveEntity.simplifyFlag,
+      recalibrateFlag: adaptiveEntity.recalibrateFlag,
+      adherenceScore: Number(adaptiveEntity.adherenceScore),
+      outcomeScore: Number(adaptiveEntity.outcomeScore),
+      weekStreak: adaptiveEntity.weekStreak,
+      weekNumber: adaptiveEntity.weekNumber,
+      skippedFoods: adaptiveEntity.skippedFoods,
+      preferredFoods: adaptiveEntity.preferredFoods,
+      slotAdherence: adaptiveEntity.slotAdherence,
+      userId: adaptiveEntity.userId,
+      weekStartDate: adaptiveEntity.weekStartDate,
+      computedAt: adaptiveEntity.computedAt.toISOString(),
+    } : null;
 
     const prompt = buildMealPlanPrompt({
       targetCalories: Number(profile.targetCalories),
@@ -65,6 +110,7 @@ export class MealPlanService {
       dislikes: profile.dislikes,
       budgetPerDay: profile.budgetPerDay ? Number(profile.budgetPerDay) : null,
       availableFoods,
+      adaptiveProfile,
     });
 
     const result = await this.llmService.chatJson<MealPlanLlmResult>({
@@ -73,8 +119,9 @@ export class MealPlanService {
       toolName: mealPlanToolName,
       toolDescription: mealPlanToolDescription,
       inputSchema: mealPlanSchema,
-      temperature: 0.7,
-      maxTokens: 4096,
+      model: LlmModel.MealPlan,
+      temperature: 0.6,
+      maxTokens: 8192,
     });
 
     // Resolve food items and build plan items
@@ -86,68 +133,24 @@ export class MealPlanService {
     const items: Partial<MealPlanItem>[] = [];
 
     for (const day of result.days) {
-      for (const meal of day.meals) {
-        let foodItemId: number;
-        let calories: number;
-        let protein: number;
-        let carbs: number;
-        let fat: number;
+      for (const recipe of day.recipes) {
+        for (const ing of recipe.ingredients) {
+          const resolved = await this.resolveIngredient(userId, ing);
 
-        if (meal.foodItemId) {
-          // Verify the food item exists
-          try {
-            const existing = await this.foodService.findById(meal.foodItemId);
-            foodItemId = existing.id;
-            calories = Number(existing.calories) * meal.quantity;
-            protein = Number(existing.protein) * meal.quantity;
-            carbs = Number(existing.carbs) * meal.quantity;
-            fat = Number(existing.fat) * meal.quantity;
-          } catch {
-            // LLM hallucinated an ID — create as new food
-            const newFood = await this.foodService.createUserFood(userId, {
-              name: meal.foodName,
-              servingSize: meal.servingSize,
-              servingUnit: meal.servingUnit,
-              calories: meal.estimatedCalories,
-              protein: meal.estimatedProtein,
-              carbs: meal.estimatedCarbs,
-              fat: meal.estimatedFat,
-            });
-            foodItemId = newFood.id;
-            calories = meal.estimatedCalories * meal.quantity;
-            protein = meal.estimatedProtein * meal.quantity;
-            carbs = meal.estimatedCarbs * meal.quantity;
-            fat = meal.estimatedFat * meal.quantity;
-          }
-        } else {
-          // New food suggested by LLM
-          const newFood = await this.foodService.createUserFood(userId, {
-            name: meal.foodName,
-            servingSize: meal.servingSize,
-            servingUnit: meal.servingUnit,
-            calories: meal.estimatedCalories,
-            protein: meal.estimatedProtein,
-            carbs: meal.estimatedCarbs,
-            fat: meal.estimatedFat,
+          items.push({
+            day: day.day,
+            mealType: recipe.mealType,
+            recipeName: recipe.recipeName,
+            prepNotes: recipe.prepNotes,
+            foodItemId: resolved.foodItemId,
+            quantity: ing.quantity,
+            notes: null,
+            calories: resolved.calories * ing.quantity,
+            protein: resolved.protein * ing.quantity,
+            carbs: resolved.carbs * ing.quantity,
+            fat: resolved.fat * ing.quantity,
           });
-          foodItemId = newFood.id;
-          calories = meal.estimatedCalories * meal.quantity;
-          protein = meal.estimatedProtein * meal.quantity;
-          carbs = meal.estimatedCarbs * meal.quantity;
-          fat = meal.estimatedFat * meal.quantity;
         }
-
-        items.push({
-          day: day.day,
-          mealType: meal.mealType,
-          foodItemId,
-          quantity: meal.quantity,
-          notes: meal.notes,
-          calories,
-          protein,
-          carbs,
-          fat,
-        });
       }
     }
 
@@ -280,6 +283,31 @@ export class MealPlanService {
     });
 
     return this.itemRepo.save(item);
+  }
+
+  private async resolveIngredient(
+    userId: number,
+    ing: { foodItemId: number | null; foodName: string; servingSize: string; servingUnit: string; estimatedCalories: number; estimatedProtein: number; estimatedCarbs: number; estimatedFat: number },
+  ) {
+    if (ing.foodItemId) {
+      try {
+        const existing = await this.foodService.findById(ing.foodItemId);
+        return { foodItemId: existing.id, calories: Number(existing.calories), protein: Number(existing.protein), carbs: Number(existing.carbs), fat: Number(existing.fat) };
+      } catch {
+        // LLM hallucinated an ID — create as new
+      }
+    }
+
+    const newFood = await this.foodService.createUserFood(userId, {
+      name: ing.foodName,
+      servingSize: ing.servingSize,
+      servingUnit: ing.servingUnit,
+      calories: ing.estimatedCalories,
+      protein: ing.estimatedProtein,
+      carbs: ing.estimatedCarbs,
+      fat: ing.estimatedFat,
+    });
+    return { foodItemId: newFood.id, calories: ing.estimatedCalories, protein: ing.estimatedProtein, carbs: ing.estimatedCarbs, fat: ing.estimatedFat };
   }
 
   private async getOwnedItem(userId: number, planId: number, itemId: number) {

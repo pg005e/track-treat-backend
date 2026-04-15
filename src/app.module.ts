@@ -13,6 +13,7 @@ import { LlmModule } from './llm/llm.module';
 import { MealPlanModule } from './meal-plan/meal-plan.module';
 import { WaterLogModule } from './water-log/water-log.module';
 import { WeightLogModule } from './weight-log/weight-log.module';
+import { AdaptiveModule } from './adaptive/adaptive.module';
 import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 
@@ -29,6 +30,7 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
     MealPlanModule,
     WaterLogModule,
     WeightLogModule,
+    AdaptiveModule,
     TrackingModule,
   ],
   controllers: [AppController],

@@ -6,9 +6,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
+import * as crypto from 'crypto';
 import { MealLog, LogSource } from './entities/meal-log.entity';
 import { FoodService } from 'src/food/food.service';
-import { LlmService } from 'src/llm/llm.service';
+import { LlmService, LlmModel } from 'src/llm/llm.service';
 import { CreateMealLogDto, QueryMealLogDto, ParseTextDto } from './dto';
 import { parseFoodText } from 'src/food/food-text-parser';
 import {
@@ -34,6 +35,7 @@ export class MealLogService {
     userId: number,
     dto: CreateMealLogDto,
     source: LogSource = LogSource.Manual,
+    group?: { groupId: string; groupName: string },
   ) {
     const foodItem = await this.foodService.findById(dto.foodItemId);
 
@@ -49,9 +51,15 @@ export class MealLogService {
       protein: Number(foodItem.protein) * quantity,
       carbs: Number(foodItem.carbs) * quantity,
       fat: Number(foodItem.fat) * quantity,
+      groupId: group?.groupId || null,
+      groupName: group?.groupName || null,
     });
 
-    return this.mealLogRepo.save(log);
+    const saved = await this.mealLogRepo.save(log);
+    return this.mealLogRepo.findOneOrFail({
+      where: { id: saved.id },
+      relations: ['foodItem'],
+    });
   }
 
   async parseText(userId: number, dto: ParseTextDto) {
@@ -82,6 +90,7 @@ export class MealLogService {
         toolName: foodParsingToolName,
         toolDescription: foodParsingToolDescription,
         inputSchema: foodParsingSchema,
+        model: LlmModel.FoodParsing,
         temperature: 0.2,
       });
     } catch (error) {
@@ -98,13 +107,12 @@ export class MealLogService {
     }
 
     const logs: MealLog[] = [];
+    const groupId = crypto.randomUUID();
 
     for (const item of result.items) {
-      // Find or create FoodItem for each ingredient
       let foodItem = await this.foodService.findByName(item.name);
 
       if (!foodItem) {
-        // Create from LLM-estimated nutrition
         foodItem = await this.foodService.createUserFood(userId, {
           name: item.name,
           servingSize: item.servingSize,
@@ -125,6 +133,7 @@ export class MealLogService {
           loggedAt,
         },
         LogSource.AiParsed,
+        { groupId, groupName: text },
       );
       logs.push(log);
     }
@@ -148,6 +157,7 @@ export class MealLogService {
 
     const logs: MealLog[] = [];
     const unresolved: string[] = [];
+    const groupId = crypto.randomUUID();
 
     for (const item of parsed) {
       const foodItem = await this.foodService.findByName(item.name);
@@ -175,6 +185,7 @@ export class MealLogService {
           loggedAt,
         },
         LogSource.AiParsed,
+        { groupId, groupName: text },
       );
       logs.push(log);
     }
@@ -230,6 +241,20 @@ export class MealLogService {
       byMealType[log.mealType].push(log);
     }
 
+    // Count unique meals: each groupId = 1 meal, each ungrouped item = 1 meal
+    const seenGroups = new Set<string>();
+    let mealCount = 0;
+    for (const log of logs) {
+      if (log.groupId) {
+        if (!seenGroups.has(log.groupId)) {
+          seenGroups.add(log.groupId);
+          mealCount++;
+        }
+      } else {
+        mealCount++;
+      }
+    }
+
     return {
       date,
       totals: {
@@ -240,6 +265,7 @@ export class MealLogService {
       },
       meals: byMealType,
       logCount: logs.length,
+      mealCount,
     };
   }
 

@@ -2,10 +2,16 @@ import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Groq from 'groq-sdk';
 
+export enum LlmModel {
+  MealPlan = 'meta-llama/llama-4-scout-17b-16e-instruct',
+  FoodParsing = 'llama-3.1-8b-instant',
+  Feedback = 'llama-3.3-70b-versatile',
+}
+
 @Injectable()
 export class LlmService {
   private readonly client: Groq | null;
-  private readonly model: string;
+  private readonly defaultModel: string;
   private readonly logger = new Logger(LlmService.name);
 
   constructor(private readonly config: ConfigService) {
@@ -19,7 +25,7 @@ export class LlmService {
         'GROQ_API_KEY not set — LLM features (meal plan generation, AI feedback) are disabled',
       );
     }
-    this.model = this.config.get<string>('groq.model') || 'llama-3.3-70b-versatile';
+    this.defaultModel = this.config.get<string>('groq.model') || LlmModel.Feedback;
   }
 
   get isAvailable(): boolean {
@@ -37,6 +43,7 @@ export class LlmService {
     toolName: string;
     toolDescription: string;
     inputSchema: Record<string, unknown>;
+    model?: string;
     maxTokens?: number;
     temperature?: number;
   }): Promise<T> {
@@ -53,7 +60,7 @@ export class LlmService {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const response = await this.client.chat.completions.create({
-          model: this.model,
+          model: options.model || this.defaultModel,
           max_tokens: options.maxTokens ?? 4096,
           temperature: options.temperature ?? 0.3,
           messages: [

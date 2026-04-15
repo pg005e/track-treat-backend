@@ -74,6 +74,13 @@ export class MealLog {
   @Column({ type: 'numeric', precision: 7, scale: 2 })
   fat: number;
 
+  @Column({ type: 'varchar', name: 'group_id', length: 36, nullable: true })
+  @Index()
+  groupId: string | null;
+
+  @Column({ type: 'varchar', name: 'group_name', length: 500, nullable: true })
+  groupName: string | null;
+
   @Column({ type: 'date', name: 'logged_at' })
   loggedAt: string; // YYYY-MM-DD
 

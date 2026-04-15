@@ -32,6 +32,12 @@ export class MealPlanItem {
   })
   mealType: string;
 
+  @Column({ type: 'varchar', name: 'recipe_name', length: 255, nullable: true })
+  recipeName: string | null;
+
+  @Column({ type: 'varchar', name: 'prep_notes', length: 1000, nullable: true })
+  prepNotes: string | null;
+
   @Column({ name: 'food_item_id' })
   foodItemId: number;
 

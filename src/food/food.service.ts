@@ -2,15 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, Repository } from 'typeorm';
 import { FoodItem, FoodSource } from './entities/food-item.entity';
-import { LlmService } from 'src/llm/llm.service';
 import { CreateFoodItemDto, SearchFoodDto } from './dto';
-import {
-  buildNutritionEstimatePrompt,
-  nutritionEstimateToolName,
-  nutritionEstimateToolDescription,
-  nutritionEstimateSchema,
-  NutritionEstimateResult,
-} from 'src/llm/prompts/nutrition-estimate.prompt';
 
 @Injectable()
 export class FoodService {
@@ -19,7 +11,6 @@ export class FoodService {
   constructor(
     @InjectRepository(FoodItem)
     private readonly foodItemRepo: Repository<FoodItem>,
-    private readonly llmService: LlmService,
   ) {}
 
   async search(dto: SearchFoodDto) {
@@ -38,52 +29,14 @@ export class FoodService {
   }
 
   /**
-   * Search local DB first. If no match and LLM is available,
-   * ask the LLM to estimate nutrition, cache the result, and return it.
+   * Search local DB by name. Returns null if not found.
+   * Nutrition estimation for unknown foods is handled inline by the
+   * food-parsing LLM prompt during meal logging.
    */
   async findByName(name: string): Promise<FoodItem | null> {
-    const local = await this.foodItemRepo.findOne({
+    return this.foodItemRepo.findOne({
       where: { name: ILike(`%${name}%`) },
     });
-    if (local) return local;
-
-    // Fall back to LLM estimation
-    if (!this.llmService.isAvailable) {
-      return null;
-    }
-
-    try {
-      const prompt = buildNutritionEstimatePrompt(name);
-      const estimate =
-        await this.llmService.chatJson<NutritionEstimateResult>({
-          systemPrompt: prompt.system,
-          userPrompt: prompt.user,
-          toolName: nutritionEstimateToolName,
-          toolDescription: nutritionEstimateToolDescription,
-          inputSchema: nutritionEstimateSchema,
-          temperature: 0.2,
-        });
-
-      const item = this.foodItemRepo.create({
-        name: estimate.name,
-        servingSize: estimate.servingSize,
-        servingUnit: estimate.servingUnit,
-        calories: estimate.calories,
-        protein: estimate.protein,
-        carbs: estimate.carbs,
-        fat: estimate.fat,
-        fiber: estimate.fiber,
-        category: estimate.category,
-        source: FoodSource.System,
-      });
-
-      return await this.foodItemRepo.save(item);
-    } catch (error) {
-      this.logger.warn(
-        `LLM nutrition estimate failed for "${name}": ${error instanceof Error ? error.message : error}`,
-      );
-      return null;
-    }
   }
 
   async findById(id: number) {

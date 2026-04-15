@@ -35,6 +35,8 @@ export class UserController {
       currentWeight: profile.currentWeight,
       initialWeight: profile.initialWeight,
       dietaryGoal: profile.dietaryGoal,
+      mealsPerDay: profile.mealsPerDay,
+      mealsPerDayAuto: profile.mealsPerDayAuto,
       onboardingCompleted: profile.onboardingCompleted,
     };
   }
